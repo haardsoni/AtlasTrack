@@ -1,0 +1,131 @@
+<!----------------------------------------------------------------
+    License under GNU AGPL v3. See https://www.gnu.org/licenses/agpl-3.0 for more details.
+
+    Copyright (c) contributors, see AUTHORS for more details.
+
+    Authors Haard Soni
+------------------------------------------------------------------------->
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Atlas Space - Home</title>
+    <link rel="icon" href="/favicon.ico" type="image/x-icon" />
+
+
+    <!-- Import Cesium.js library -->
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.81/Build/Cesium/Cesium.js"></script>
+    <!-- Import Cesium.js widgets stylesheet -->
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.81/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    <!-- Import satellite.js library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/satellite.js/4.0.0/satellite.js"></script>
+
+    <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries -->
+    <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
+    <!--[if lt IE 9]-->
+    <script src="https://oss.maxcdn.com/html5shiv/3.7.2/html5shiv.min.js"></script>
+    <script src="https://oss. maxcdn.com/respond/1.4.2/respond.min.js"></script>
+    <!-- Import custom stylesheet -->
+    <link href="style.css" rel="stylesheet" type="text/css" />
+    <!-- Import Google Fonts for the header text -->
+    <link href='./fonts/fonts.styles.css' type='text/css' />
+    <!--Import  Google Icon Font-->
+    <link href="http://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
+    <!--Let browser know website is optimized for mobile-->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  </head>
+
+  <body>
+    <!-- Loading screen -->
+    <div id="loading">
+      <h1>AtlasTrack</h1>
+    </div>
+    <!-- Cesium viewer container -->
+    <div id="cesiumContainer"></div>
+    <!-- Initialize the Cesium viewer -->
+    <script>
+      // Initialize the Cesium viewer with custom settings
+      const viewer = new Cesium.Viewer('cesiumContainer', {
+        imageryProvider: new Cesium.TileMapServiceImageryProvider({
+          url: Cesium.buildModuleUrl("./Assets/Textures/NaturalEarthII"),
+        }),
+        baseLayerPicker: false,
+        geocoder: false,
+        homeButton: false,
+        infoBox: false,
+        navigationHelpButton: true,
+        sceneModePicker: false
+      });
+
+      // ISS TLE (Two-Line Element) data
+      const ISS_TLE =
+        `1 25544U 98067A   24096.07245678  .00013658  00000+0  24749-3 0  9991
+        2 25544  51.6414 317.9004 0004526  40.5413  56.0642 15.49924905447209`;
+
+
+      // Parse ISS TLE data using satellite.js
+      const satrec = satellite.twoline2satrec(
+        ISS_TLE.split('\n')[0].trim(),
+        ISS_TLE.split('\n')[1].trim()
+      );
+
+
+      // Generate satellite positions over time
+      const totalSeconds = 60 * 60 * 24; // 24 hours
+      const timestepInSeconds = 5; // Generate a position every 5 seconds
+      const start = Cesium.JulianDate.fromDate(new Date());
+      const stop = Cesium.JulianDate.addSeconds(start, totalSeconds, new Cesium.JulianDate());
+      viewer.clock.startTime = start.clone();
+      viewer.clock.stopTime = stop.clone();
+      viewer.clock.currentTime = start.clone();
+      viewer.timeline.zoomTo(start, stop);
+      viewer.clock.multiplier = 25;
+      viewer.clock.clockRange = Cesium.ClockRange.LOOP_STOP;
+
+      const positionsOverTime = new Cesium.SampledPositionProperty();
+      for (let i = 0; i < totalSeconds; i += timestepInSeconds) {
+        const time = Cesium.JulianDate.addSeconds(start, i, new Cesium.JulianDate());
+        const jsDate = Cesium.JulianDate.toDate(time);
+
+        // Propagate the satellite position and velocity using satellite.js
+        const positionAndVelocity = satellite.propagate(satrec, jsDate);
+
+
+        // Convert ECI coordinates to geodetic coordinates
+        const gmst = satellite.gstime(jsDate);
+        const p = satellite.eciToGeodetic(positionAndVelocity.position, gmst);
+
+        // Convert geodetic coordinates to Cartesian3 coordinates
+        const position = Cesium.Cartesian3.fromRadians(p.longitude, p.latitude, p.height * 1000);
+        positionsOverTime.addSample(time, position);
+      }
+
+      // Add a WHITE dot to visualize the satellite
+      const satellitePoint = viewer.entities.add({
+        position: positionsOverTime,
+        point: { pixelSize: 5, color: Cesium.Color.WHITE }
+      });
+
+      // Set the camera to follow the satellite
+      viewer.trackedEntity = satellitePoint;
+
+      // Wait for the globe to load, then zoom out
+      let initialized = false;
+      viewer.scene.globe.tileLoadProgressEvent.addEventListener(() => {
+        if (!initialized && viewer.scene.globe.tilesLoaded === true) {
+          viewer.clock.shouldAnimate = true;
+          initialized = true;
+          viewer.scene.camera.zoomOut(7000000);
+          document.querySelector("#loading").classList.toggle('disappear', true)
+        }
+      });
+    </script>
+  </body>
+
+</html>
